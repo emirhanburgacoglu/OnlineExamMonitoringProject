@@ -1,0 +1,10 @@
+# Python Sanal Ortamı
+venv/
+
+# Python Cache Dosyaları
+__pycache__/
+*.pyc
+
+# .NET Derleme Dosyaları
+[Bb]in/
+[Bb]bj/
