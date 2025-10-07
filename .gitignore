@@ -8,3 +8,10 @@ __pycache__/
 # .NET Derleme Dosyaları
 [Bb]in/
 [Bb]bj/
+
+# Sanal Ortam (Zaten ekli olabilir, kontrol edin)
+venv/
+.venv/
+
+# VS Code Ayarları
+.vscode/
