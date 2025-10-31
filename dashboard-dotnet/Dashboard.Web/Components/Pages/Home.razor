@@ -1,0 +1,144 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using MudBlazor
+@inject PythonApiService ApiService
+@implements IDisposable
+
+<PageTitle>Canlı Takip Paneli</PageTitle>
+
+<MudGrid Spacing="3" Justify="Justify.Center">
+    <!-- DURUM KARTI -->
+    <MudItem xs="12" sm="10" md="8">
+        <MudPaper Elevation="3" Class="pa-4 rounded-lg" Style="@_statusCardStyle">
+            <MudText Typo="Typo.h6" Align="Align.Center"><b>ŞU ANKİ DURUM</b></MudText>
+            <div class="d-flex align-center justify-center mt-4">
+                <MudIcon Icon="@_statusIcon" Size="Size.Large" Class="mr-3" />
+                <MudText Typo="Typo.h3">@_currentStatus</MudText>
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    <!-- LOG LİSTESİ -->
+    <MudItem xs="12" sm="10" md="8">
+        <MudPaper Elevation="2" Class="pa-4 mt-4 rounded-lg">
+            <MudText Typo="Typo.h6">Son Şüpheli Olaylar</MudText>
+            <MudList T="LogEntry" Class="mt-2">
+                @if (!_eventLogs.Any())
+                {
+                    <MudListItem>Henüz şüpheli bir olay kaydedilmedi.</MudListItem>
+                }
+                @foreach (var log in _eventLogs.AsEnumerable().Reverse())
+                {
+                    <MudListItem Icon="@GetIconForEvent(log.Event)" IconColor="Color.Warning">
+                        @log.LogTime.ToString("HH:mm:ss") - @log.Event
+                    </MudListItem>
+                }
+            </MudList>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private record LogEntry(DateTime LogTime, string Event);
+
+    private string _currentStatus = "Veri Bekleniyor...";
+    private string _statusCardStyle = "background-color: #fafafa; color: #616161;";
+    private string _statusIcon = Icons.Material.Filled.HourglassEmpty;
+
+    private readonly List<LogEntry> _eventLogs = new();
+    private string? _lastLoggedEventId;
+
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        _cts = new CancellationTokenSource();
+
+        var first = await ApiService.GetLatestEventAsync();
+        await InvokeAsync(() =>
+        {
+            ApplyEventToState(first);
+            StateHasChanged();
+        });
+
+        _ = RunLoopAsync(_cts.Token);
+    }
+
+    private async Task RunLoopAsync(CancellationToken token)
+    {
+        await foreach (var _ in PeriodicAsync(TimeSpan.FromSeconds(1), token))
+        {
+            var latest = await ApiService.GetLatestEventAsync();
+            await InvokeAsync(() =>
+            {
+                ApplyEventToState(latest);
+                StateHasChanged();
+            });
+        }
+    }
+
+    private void ApplyEventToState(SuspiciousEvent? latestEvent)
+    {
+        if (latestEvent is null)
+        {
+            _currentStatus = "İLETİŞİM HATASI";
+            _statusIcon = Icons.Material.Filled.Error;
+            _statusCardStyle = "background-color: #fff3cd; color: #856404;";
+            return;
+        }
+
+        bool isSuspicious = latestEvent.SuspicionScore > 0.5;
+        _currentStatus = isSuspicious ? latestEvent.Event : "NORMAL";
+
+        _statusCardStyle = isSuspicious
+            ? "background-color: #ffebee; color: #b71c1c;"
+            : "background-color: #e8f5e9; color: #1b5e20;";
+
+        _statusIcon = isSuspicious
+            ? Icons.Material.Filled.Warning
+            : Icons.Material.Filled.CheckCircle;
+
+        var eventId = $"{latestEvent.Timestamp}-{latestEvent.Event}";
+        if (isSuspicious && eventId != _lastLoggedEventId)
+        {
+            if (_eventLogs.Count >= 10)
+                _eventLogs.RemoveAt(0);
+
+            _eventLogs.Add(new LogEntry(DateTime.Now, latestEvent.Event));
+            _lastLoggedEventId = eventId;
+        }
+    }
+
+    private static async IAsyncEnumerable<int> PeriodicAsync(
+        TimeSpan period, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token)
+    {
+        var i = 0;
+        while (!token.IsCancellationRequested)
+        {
+            yield return i++;
+            try
+            {
+                await Task.Delay(period, token);
+            }
+            catch (TaskCanceledException)
+            {
+                yield break;
+            }
+        }
+    }
+
+    private string GetIconForEvent(string eventName) => eventName switch
+    {
+        var e when e.Contains("Bakiyor") => Icons.Material.Filled.VisibilityOff,
+        var e when e.Contains("Kadraj") => Icons.Material.Filled.PersonOff,
+        _ => Icons.Material.Filled.RecordVoiceOver
+    };
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+}
