@@ -1,6 +1,8 @@
 using Dashboard.Web.Components;
 using Dashboard.Web.Services;
+using Dashboard.Web.Data;                // <-- DbContext için
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.EntityFrameworkCore;     // <-- UseSqlite için
 using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,7 +11,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// 2) Python API'ye konuşacak Typed HttpClient
+// 2) EF Core (SQLite) - Blazor Server için DbContextFactory önerilir
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
+                      ?? "Data Source=project.db"));
+
+// 3) Python API'ye konuşacak Typed HttpClient
 builder.Services.AddHttpClient<PythonApiService>(client =>
 {
     client.BaseAddress = new Uri("http://127.0.0.1:8000");
@@ -23,7 +30,8 @@ builder.Services.AddHttpClient<PythonApiService>(client =>
     };
 });
 
-// 3) MudBlazor
+// 4) Uygulama servisleri
+builder.Services.AddScoped<EventLogService>(); // <-- DB log servisi
 builder.Services.AddMudServices();
 
 var app = builder.Build();
@@ -38,8 +46,36 @@ if (!app.Environment.IsDevelopment())
 app.UseStaticFiles();
 app.UseAntiforgery();
 
-// 4) KRİTİK: Interaktif server render mode'u etkinleştir
+// 5) Interaktif server render mode'u etkinleştir
 app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();
+
+// 6) Opsiyonel: Migration uygula + basit seed (Varsayılan öğrenci/sınav oluşturur)
+using (var scope = app.Services.CreateScope())
+{
+    var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+    await using var db = await dbFactory.CreateDbContextAsync();
+    db.Database.Migrate();
+
+    if (!db.Students.Any())
+    {
+        db.Students.Add(new Student
+        {
+            Name = "Varsayılan Öğrenci",
+            StudentNumber = "0001"
+        });
+        await db.SaveChangesAsync();
+    }
+
+    if (!db.Exams.Any())
+    {
+        db.Exams.Add(new Exam
+        {
+            CourseName = "Varsayılan Sınav",
+            StartTime = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+    }
+}
 
 app.Run();

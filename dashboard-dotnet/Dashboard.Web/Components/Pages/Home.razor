@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @using MudBlazor
 @inject PythonApiService ApiService
+@inject EventLogService EventLogs
 @implements IDisposable
 
 <PageTitle>Canlı Takip Paneli</PageTitle>
@@ -50,12 +51,23 @@
 
     private CancellationTokenSource? _cts;
 
+    // Şimdilik tek öğrenci/sınav varsayıyoruz (seed ile 1/1 oluşacak)
+    private int _studentId = 1;
+    private int _examId = 1;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
 
         _cts = new CancellationTokenSource();
 
+        // 1) DB'den geçmiş 10 kaydı yükle
+        var history = await EventLogs.GetLastAsync(_studentId, _examId, 10);
+        _eventLogs.Clear();
+        foreach (var h in history.OrderBy(x => x.Timestamp))
+            _eventLogs.Add(new LogEntry(h.Timestamp.ToLocalTime(), h.EventType));
+
+        // 2) İlk API verisini çek ve UI'ya uygula
         var first = await ApiService.GetLatestEventAsync();
         await InvokeAsync(() =>
         {
@@ -63,6 +75,7 @@
             StateHasChanged();
         });
 
+        // 3) Arka plan döngüsü (poll)
         _ = RunLoopAsync(_cts.Token);
     }
 
@@ -71,6 +84,14 @@
         await foreach (var _ in PeriodicAsync(TimeSpan.FromSeconds(1), token))
         {
             var latest = await ApiService.GetLatestEventAsync();
+
+            // DB persist: şüpheliyse yaz
+            if (latest is not null && latest.SuspicionScore > 0.5)
+            {
+                await EventLogs.LogIfNewAsync(_studentId, _examId, latest);
+            }
+
+            // UI state
             await InvokeAsync(() =>
             {
                 ApplyEventToState(latest);
@@ -100,6 +121,7 @@
             ? Icons.Material.Filled.Warning
             : Icons.Material.Filled.CheckCircle;
 
+        // UI listesini de güncelle (son 10)
         var eventId = $"{latestEvent.Timestamp}-{latestEvent.Event}";
         if (isSuspicious && eventId != _lastLoggedEventId)
         {

@@ -1,17 +1,24 @@
-# Python Sanal Ortamı
-venv/
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.log
+*.vs/
+*.nupkg
 
-# Python Cache Dosyaları
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# VS Code
+.vscode/
+
+# Python
 __pycache__/
 *.pyc
-
-# .NET Derleme Dosyaları
-[Bb]in/
-[Bb]bj/
-
-# Sanal Ortam (Zaten ekli olabilir, kontrol edin)
-venv/
 .venv/
-
-# VS Code Ayarları
-.vscode/
+venv/
+.env
