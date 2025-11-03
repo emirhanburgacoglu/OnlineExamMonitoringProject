@@ -1,0 +1,29 @@
+@using MudBlazor
+
+@code {
+    [Parameter] public string Title { get; set; } = "Olay Görüntüsü";
+    [Parameter] public DateTime Time { get; set; }
+    [Parameter] public string? ImageUrl { get; set; }
+}
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.h6">@Title</MudText>
+        <MudText Typo="Typo.caption" Class="text-secondary">
+            Zaman: @Time.ToString("yyyy-MM-dd HH:mm:ss")
+        </MudText>
+
+        @if (!string.IsNullOrWhiteSpace(ImageUrl))
+        {
+            <div class="mt-3">
+                <img src="@ImageUrl" alt="Olay görüntüsü" style="max-width:100%; height:auto;" />
+            </div>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info" Class="mt-3">
+                Bu olay için görüntü bulunamadı.
+            </MudAlert>
+        }
+    </DialogContent>
+</MudDialog>

@@ -1,14 +1,21 @@
 ﻿@inherits LayoutComponentBase
+@using MudBlazor
 
-<MudThemeProvider />
+<!-- MudBlazor v8+: Provider'lar self-closing (içine içerik almaz) -->
+<MudThemeProvider Theme="@_theme" />
 <MudDialogProvider />
 <MudSnackbarProvider />
+<!-- İleride popover kullanan bir bileşen eklenirse aç -->
+<!-- <MudPopoverProvider /> -->
 
 <MudLayout>
-    <MudAppBar Elevation="1">
-        <MudText Typo="Typo.h5" Class="ml-4">Online Sınav Şüpheli Davranış Takip Paneli</MudText>
+    <MudAppBar Elevation="0" Color="Color.Primary" Dense="true">
+        <MudText Typo="Typo.h6" Class="ml-2" Color="Color.Inherit">
+            Online Sınav Şüpheli Davranış Takip Paneli
+        </MudText>
     </MudAppBar>
-    <MudMainContent Class="pa-4 mt-16">
+
+    <MudMainContent Class="pa-4 mt-8">
         <div class="main-content-wrapper">
             @Body
         </div>
@@ -16,8 +23,23 @@
 </MudLayout>
 
 <style>
-    .main-content-wrapper {
-        max-width: 1200px;
-        margin: auto;
-    }
+    .main-content-wrapper { max-width: 1200px; margin: auto; }
 </style>
+
+@code {
+    // Hafif kurumsal bir tema
+    private MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = Colors.Indigo.Darken3,
+            Secondary = Colors.Green.Accent3,
+            AppbarBackground = Colors.Indigo.Darken3,
+            AppbarText = "#ffffff",
+            Success = Colors.Green.Default,
+            Warning = Colors.Orange.Default,
+            Error = Colors.Red.Default,
+            Info = Colors.Blue.Default
+        }
+    };
+}

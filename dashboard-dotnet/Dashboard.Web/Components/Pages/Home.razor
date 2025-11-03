@@ -3,35 +3,83 @@
 @using MudBlazor
 @inject PythonApiService ApiService
 @inject EventLogService EventLogs
+@inject ISnackbar Snackbar
 @implements IDisposable
 
 <PageTitle>Canlı Takip Paneli</PageTitle>
 
 <MudGrid Spacing="3" Justify="Justify.Center">
+
+    <!-- FİLTRE / DURUM ŞERİDİ -->
+    <MudItem xs="12" sm="10" md="10" lg="10">
+        <MudPaper Elevation="2" Class="pa-3 rounded-lg">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+
+                <!-- Bağlantı durumu -->
+                <MudChip T="string" Color="@_connectionColor" Variant="Variant.Filled" Icon="@_connectionIcon" Class="mr-2">
+                    @_connectionText
+                </MudChip>
+
+                <MudText Typo="Typo.caption" Class="text-secondary mr-4">
+                    Son güncelleme: @(_lastUpdatedUtc.HasValue ? _lastUpdatedUtc.Value.ToLocalTime().ToString("HH:mm:ss") : "-")
+                </MudText>
+
+                <MudDivider Vertical="true" Class="mx-2" FlexItem="true" />
+
+                <!-- Canlı anahtar -->
+                <MudSwitch T="bool"
+                           @bind-Checked="Live"
+                           Color="Color.Primary"
+                           Label="Canlı"
+                           Size="Size.Small"
+                           Class="mr-2" />
+
+                <!-- Yenile -->
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Refresh"
+                           OnClick="RefreshOnceAsync"
+                           Disabled="@_isBusy">
+                    Yenile
+                </MudButton>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
     <!-- DURUM KARTI -->
-    <MudItem xs="12" sm="10" md="8">
-        <MudPaper Elevation="3" Class="pa-4 rounded-lg" Style="@_statusCardStyle">
+    <MudItem xs="12" sm="10" md="10" lg="10">
+        <MudPaper Elevation="3" Class="pa-5 rounded-lg" Style="@_statusCardStyle">
             <MudText Typo="Typo.h6" Align="Align.Center"><b>ŞU ANKİ DURUM</b></MudText>
+
             <div class="d-flex align-center justify-center mt-4">
                 <MudIcon Icon="@_statusIcon" Size="Size.Large" Class="mr-3" />
-                <MudText Typo="Typo.h3">@_currentStatus</MudText>
+                <MudText Typo="Typo.h2">@_currentStatus</MudText>
+            </div>
+
+            <div class="d-flex align-center justify-center mt-3">
+                <MudProgressCircular Size="Size.Large" Color="Color.Primary" Class="mr-2" Value="@_lastScorePercent" Max="100" />
+                <MudText Typo="Typo.caption" Class="text-secondary">
+                    Skor: @_lastScore:F2
+                </MudText>
             </div>
         </MudPaper>
     </MudItem>
 
     <!-- LOG LİSTESİ -->
-    <MudItem xs="12" sm="10" md="8">
-        <MudPaper Elevation="2" Class="pa-4 mt-4 rounded-lg">
+    <MudItem xs="12" sm="10" md="10" lg="10">
+        <MudPaper Elevation="2" Class="pa-4 rounded-lg">
             <MudText Typo="Typo.h6">Son Şüpheli Olaylar</MudText>
             <MudList T="LogEntry" Class="mt-2">
                 @if (!_eventLogs.Any())
                 {
-                    <MudListItem>Henüz şüpheli bir olay kaydedilmedi.</MudListItem>
+                    <MudListItem>
+                        <MudText Typo="Typo.body2" Class="text-secondary">Henüz şüpheli bir olay kaydedilmedi.</MudText>
+                    </MudListItem>
                 }
                 @foreach (var log in _eventLogs.AsEnumerable().Reverse())
                 {
                     <MudListItem Icon="@GetIconForEvent(log.Event)" IconColor="Color.Warning">
-                        @log.LogTime.ToString("HH:mm:ss") - @log.Event
+                        <MudText Typo="Typo.body2">@log.LogTime.ToString("HH:mm:ss") - @log.Event</MudText>
                     </MudListItem>
                 }
             </MudList>
@@ -42,18 +90,39 @@
 @code {
     private record LogEntry(DateTime LogTime, string Event);
 
+    // Görsel durumlar
     private string _currentStatus = "Veri Bekleniyor...";
     private string _statusCardStyle = "background-color: #fafafa; color: #616161;";
     private string _statusIcon = Icons.Material.Filled.HourglassEmpty;
 
+    // Bağlantı durumu
+    private string _connectionText = "Bağlantı bekleniyor";
+    private Color _connectionColor = Color.Info;
+    private string _connectionIcon = Icons.Material.Filled.Sync;
+    private DateTime? _lastUpdatedUtc;
+    private bool _isBusy;
+
+    // Skor
+    private double _lastScore;
+    private double _lastScorePercent => Math.Clamp(_lastScore * 100.0, 0, 100);
+
+    // Loglar
     private readonly List<LogEntry> _eventLogs = new();
     private string? _lastLoggedEventId;
 
     private CancellationTokenSource? _cts;
 
-    // Şimdilik tek öğrenci/sınav varsayıyoruz (seed ile 1/1 oluşacak)
+    // Şimdilik sabit öğrenci/sınav (1/1)
     private int _studentId = 1;
     private int _examId = 1;
+
+    // Canlı izleme
+    private bool _live = true;
+    private bool Live
+    {
+        get => _live;
+        set => _live = value; // toggle edildiğinde bir sonraki döngü veri çekmeyi durdurur/başlatır
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -67,22 +136,36 @@
         foreach (var h in history.OrderBy(x => x.Timestamp))
             _eventLogs.Add(new LogEntry(h.Timestamp.ToLocalTime(), h.EventType));
 
-        // 2) İlk API verisini çek ve UI'ya uygula
-        var first = await ApiService.GetLatestEventAsync();
-        await InvokeAsync(() =>
-        {
-            ApplyEventToState(first);
-            StateHasChanged();
-        });
+        // 2) İlk veri
+        await RefreshOnceAsync();
 
-        // 3) Arka plan döngüsü (poll)
+        // 3) Arka plan döngüsü
         _ = RunLoopAsync(_cts.Token);
+    }
+
+    private async Task RefreshOnceAsync()
+    {
+        _isBusy = true;
+        try
+        {
+            var latest = await ApiService.GetLatestEventAsync();
+            UpdateConnection(latest is not null);
+            ApplyEventToState(latest);
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
     }
 
     private async Task RunLoopAsync(CancellationToken token)
     {
         await foreach (var _ in PeriodicAsync(TimeSpan.FromSeconds(1), token))
         {
+            if (!_live)
+                continue;
+
             var latest = await ApiService.GetLatestEventAsync();
 
             // DB persist: şüpheliyse yaz
@@ -92,11 +175,30 @@
             }
 
             // UI state
+            UpdateConnection(latest is not null);
             await InvokeAsync(() =>
             {
                 ApplyEventToState(latest);
                 StateHasChanged();
             });
+        }
+    }
+
+    private void UpdateConnection(bool ok)
+    {
+        if (ok)
+        {
+            _lastUpdatedUtc = DateTime.UtcNow;
+            _connectionText = "Canlı";
+            _connectionColor = Color.Success;
+            _connectionIcon = Icons.Material.Filled.Wifi;
+        }
+        else
+        {
+            var stale = _lastUpdatedUtc.HasValue && (DateTime.UtcNow - _lastUpdatedUtc.Value).TotalSeconds > 10;
+            _connectionText = stale ? "Kopuk" : "Gecikmeli";
+            _connectionColor = stale ? Color.Error : Color.Warning;
+            _connectionIcon = stale ? Icons.Material.Filled.PortableWifiOff : Icons.Material.Filled.SignalWifiStatusbarNull;
         }
     }
 
@@ -109,6 +211,8 @@
             _statusCardStyle = "background-color: #fff3cd; color: #856404;";
             return;
         }
+
+        _lastScore = latestEvent.SuspicionScore;
 
         bool isSuspicious = latestEvent.SuspicionScore > 0.5;
         _currentStatus = isSuspicious ? latestEvent.Event : "NORMAL";
@@ -140,14 +244,8 @@
         while (!token.IsCancellationRequested)
         {
             yield return i++;
-            try
-            {
-                await Task.Delay(period, token);
-            }
-            catch (TaskCanceledException)
-            {
-                yield break;
-            }
+            try { await Task.Delay(period, token); }
+            catch (TaskCanceledException) { yield break; }
         }
     }
 
