@@ -4,7 +4,13 @@
 @inject PythonApiService ApiService
 @inject EventLogService EventLogs
 @inject ISnackbar Snackbar
+@inject IDialogService Dialog
 @implements IDisposable
+
+<!-- Provider’lar: interaktif boundary içinde olmalı -->
+<MudDialogProvider />
+<MudSnackbarProvider />
+<!-- <MudPopoverProvider />  ihtiyaç olursa aç -->
 
 <PageTitle>Canlı Takip Paneli</PageTitle>
 
@@ -32,7 +38,8 @@
                            Color="Color.Primary"
                            Label="Canlı"
                            Size="Size.Small"
-                           Class="mr-2" />
+                           Class="mr-2"
+                            />
 
                 <!-- Yenile -->
                 <MudButton Variant="Variant.Outlined"
@@ -51,7 +58,9 @@
         <MudPaper Elevation="3" Class="pa-5 rounded-lg" Style="@_statusCardStyle">
             <MudText Typo="Typo.h6" Align="Align.Center"><b>ŞU ANKİ DURUM</b></MudText>
 
-            <div class="d-flex align-center justify-center mt-4">
+            <div class="d-flex align-center justify-center mt-4"
+                 role="button" style="cursor:pointer"
+                 @onclick="@(async () => await ShowSnapshotAsync(_currentStatus))">
                 <MudIcon Icon="@_statusIcon" Size="Size.Large" Class="mr-3" />
                 <MudText Typo="Typo.h2">@_currentStatus</MudText>
             </div>
@@ -78,7 +87,9 @@
                 }
                 @foreach (var log in _eventLogs.AsEnumerable().Reverse())
                 {
-                    <MudListItem Icon="@GetIconForEvent(log.Event)" IconColor="Color.Warning">
+                    <MudListItem Icon="@GetIconForEvent(log.Event)"
+                                 IconColor="Color.Warning"
+                                 OnClick="@(async () => await ShowSnapshotAsync(log.Event))">
                         <MudText Typo="Typo.body2">@log.LogTime.ToString("HH:mm:ss") - @log.Event</MudText>
                     </MudListItem>
                 }
@@ -118,11 +129,7 @@
 
     // Canlı izleme
     private bool _live = true;
-    private bool Live
-    {
-        get => _live;
-        set => _live = value; // toggle edildiğinde bir sonraki döngü veri çekmeyi durdurur/başlatır
-    }
+    private bool Live { get => _live; set => _live = value; }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -255,6 +262,30 @@
         var e when e.Contains("Kadraj") => Icons.Material.Filled.PersonOff,
         _ => Icons.Material.Filled.RecordVoiceOver
     };
+
+    // === Snapshot al ve dialog aç ===
+    private async Task ShowSnapshotAsync(string title)
+    {
+        var url = await ApiService.GetSnapshotAsync();
+        if (!string.IsNullOrWhiteSpace(url))
+            url = url.Trim().Trim('"', '\'').TrimEnd('}');
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            Snackbar.Add("Ekran görüntüsü alınamadı.", Severity.Warning);
+            return;
+        }
+
+        var parameters = new DialogParameters
+        {
+            ["Title"] = title,
+            ["Time"] = DateTime.Now,
+            ["ImageUrl"] = url
+        };
+        // FullWidth=false ve MaxWidth=False: içeriğe (resme) göre boyutlanır
+        var options = new DialogOptions { CloseButton = true, FullWidth = false, MaxWidth = MaxWidth.False };
+        await Dialog.ShowAsync<EventImageDialog>("Ekran Görüntüsü", parameters, options);
+    }
 
     public void Dispose()
     {

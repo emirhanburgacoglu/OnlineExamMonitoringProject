@@ -1,29 +1,49 @@
 @using MudBlazor
 
 @code {
-    [Parameter] public string Title { get; set; } = "Olay Görüntüsü";
+    // Başlık olay metni (boşsa "Şüpheli Olay")
+    [Parameter] public string? Title { get; set; }
     [Parameter] public DateTime Time { get; set; }
     [Parameter] public string? ImageUrl { get; set; }
 }
 
-<MudDialog>
+<MudDialog Class="snapshot-dialog">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(!string.IsNullOrWhiteSpace(Title) ? Title : "Şüpheli Olay")</MudText>
+    </TitleContent>
+
     <DialogContent>
-        <MudText Typo="Typo.h6">@Title</MudText>
-        <MudText Typo="Typo.caption" Class="text-secondary">
-            Zaman: @Time.ToString("yyyy-MM-dd HH:mm:ss")
+        <MudText Typo="Typo.caption" Class="text-secondary px-3 pt-2">
+            @Time.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
         </MudText>
 
         @if (!string.IsNullOrWhiteSpace(ImageUrl))
         {
-            <div class="mt-3">
-                <img src="@ImageUrl" alt="Olay görüntüsü" style="max-width:100%; height:auto;" />
-            </div>
+            <img class="snapshot-img" src="@ImageUrl" alt="@Title" />
         }
         else
         {
-            <MudAlert Severity="Severity.Info" Class="mt-3">
-                Bu olay için görüntü bulunamadı.
+            <MudAlert Severity="Severity.Info" Class="ma-3">
+                Bu an için görüntü bulunamadı.
             </MudAlert>
         }
     </DialogContent>
 </MudDialog>
+
+<style>
+    /* Dialog iç padding’i kaldır */
+    .snapshot-dialog .mud-dialog-content {
+        padding: 0 !important;
+    }
+
+    /* Resmi ekrana taşmadan sığdır */
+    .snapshot-img {
+        display: block;
+        max-width: 95vw;
+        max-height: 85vh;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+        border-radius: 4px;
+    }
+</style>

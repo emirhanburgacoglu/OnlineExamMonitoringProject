@@ -1,48 +1,60 @@
-# C:\Projelerim\OnlineExamMonitoringProject\video_analyzer\api.py
-
+import os
 import cv2
 import mediapipe as mp
 import time
 import threading
 from fastapi import FastAPI
-# --- YENİ EKLENEN SATIR ---
 from fastapi.middleware.cors import CORSMiddleware
-# --- ---
+from fastapi.staticfiles import StaticFiles
 
-# FastAPI uygulamasını oluştur
 app = FastAPI()
 
-# --- YENİ BÖLÜM: CORS AYARLARI ---
-# .NET projenizin çalıştığı adresi buraya ekliyoruz.
+# CORS
 origins = [
     "http://localhost:5018",
     "http://127.0.0.1:5018"
 ]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, # Sadece bu adreslerden gelen isteklere izin ver
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"], # Tüm metotlara (GET, POST vb.) izin ver
-    allow_headers=["*"], # Tüm başlıklara izin ver
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-# --- CORS AYARLARI SONU ---
 
+# frames dizinini mutlak path ile servis et
+FRAMES_DIR = os.path.join(os.path.dirname(__file__), "frames")
+os.makedirs(FRAMES_DIR, exist_ok=True)
+app.mount("/frames", StaticFiles(directory=FRAMES_DIR), name="frames")
 
-# Global Değişken: Analiz Sonucunu Saklamak İçin
+def save_frame(frame_bgr):
+    ts = int(time.time() * 1000)
+    filename = f"event_{ts}.jpg"
+    path = os.path.join(FRAMES_DIR, filename)
+    cv2.imwrite(path, frame_bgr)
+    url = f"http://127.0.0.1:8000/frames/{filename}"
+    print("Saved image:", path, "URL:", url)
+    return url
+
+# Global durum
 latest_event = {
     "timestamp": time.time(),
     "event": "Sistem Başlatılıyor...",
-    "suspicion_score": 0.0
+    "suspicion_score": 0.0,
+    "image_url": None
 }
 
-# --- Göz Takibi Mantığı (Değişiklik yok) ---
+last_frame_bgr = None  # anlık kare (snapshot için)
+
 def video_analysis_thread():
-    global latest_event
-    
+    global latest_event, last_frame_bgr
+
     mp_face_mesh = mp.solutions.face_mesh
-    face_mesh = mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.5, min_tracking_confidence=0.5)
-    
+    face_mesh = mp_face_mesh.FaceMesh(
+        max_num_faces=1, refine_landmarks=True,
+        min_detection_confidence=0.5, min_tracking_confidence=0.5
+    )
+
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Hata: Video kamera başlatılamadı.")
@@ -50,7 +62,7 @@ def video_analysis_thread():
 
     gaze_timer_start = None
     GAZE_THRESHOLD_SECONDS = 3.5
-    
+
     HORIZONTAL_LOWER_THRESHOLD = 0.30
     HORIZONTAL_UPPER_THRESHOLD = 0.56
     VERTICAL_LOWER_THRESHOLD = 0.32
@@ -64,7 +76,12 @@ def video_analysis_thread():
             time.sleep(0.1)
             continue
 
+        # Aynaya uygun görünüm için yatay çevir
         frame = cv2.flip(frame, 1)
+
+        # Snapshot için son kareyi (flip sonrası) sakla
+        last_frame_bgr = frame.copy()
+
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(rgb_frame)
 
@@ -74,7 +91,7 @@ def video_analysis_thread():
 
         if results.multi_face_landmarks:
             landmarks = results.multi_face_landmarks[0].landmark
-            
+
             h_left_eye_width = landmarks[133].x - landmarks[33].x
             h_left_ratio = (landmarks[473].x - landmarks[33].x) / h_left_eye_width if h_left_eye_width != 0 else 0.5
             h_right_eye_width = landmarks[263].x - landmarks[362].x
@@ -95,28 +112,41 @@ def video_analysis_thread():
                 is_looking_away, status_text = True, "Yukari Bakiyor"
             elif avg_vertical_ratio > VERTICAL_UPPER_THRESHOLD:
                 is_looking_away, status_text = True, "Asagi Bakiyor"
-                
         else:
             suspicious, status_text = True, "Yuz Kadraj Disinda"
 
         if is_looking_away:
-            if gaze_timer_start is None: gaze_timer_start = time.time()
+            if gaze_timer_start is None:
+                gaze_timer_start = time.time()
             if time.time() - gaze_timer_start > GAZE_THRESHOLD_SECONDS:
                 suspicious = True
         else:
             gaze_timer_start = None
-        
+
         current_time = time.time()
-        
+
+        # OLAY ANINDA GÖRSEL KAYDET + image_url ekle
         if suspicious and (current_time - last_event_time > 5):
-            latest_event = {"timestamp": current_time, "event": status_text, "suspicion_score": 0.8}
-            print(f"API Guncellendi: {status_text}")
+            image_url = save_frame(frame)  # flip sonrası kareyi kaydet
+            latest_event = {
+                "timestamp": current_time,
+                "event": status_text,
+                "suspicion_score": 0.8,
+                "image_url": image_url
+            }
+            print(f"API Guncellendi: {status_text} | image: {image_url}")
             last_event_time = current_time
+
         elif not is_looking_away and not suspicious:
-            if latest_event["event"] != "NORMAL":
-                 latest_event = {"timestamp": current_time, "event": "NORMAL", "suspicion_score": 0.0}
-                 print(f"API Guncellendi: NORMAL")
-                 last_event_time = current_time
+            if latest_event.get("event") != "NORMAL":
+                latest_event = {
+                    "timestamp": current_time,
+                    "event": "NORMAL",
+                    "suspicion_score": 0.0,
+                    "image_url": None
+                }
+                print("API Guncellendi: NORMAL")
+                last_event_time = current_time
 
         time.sleep(0.01)
 
@@ -127,6 +157,15 @@ def read_root():
 @app.get("/latest_event")
 def get_latest_event():
     return latest_event
+
+# ANLIK EKRAN GÖRÜNTÜSÜ (yedek)
+@app.get("/snapshot")
+def snapshot():
+    global last_frame_bgr
+    if last_frame_bgr is None:
+        return {"image_url": None}
+    url = save_frame(last_frame_bgr)
+    return {"image_url": url}
 
 @app.on_event("startup")
 def startup_event():
