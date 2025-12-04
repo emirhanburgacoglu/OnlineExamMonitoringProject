@@ -61,7 +61,7 @@ def video_analysis_thread():
         return
 
     gaze_timer_start = None
-    GAZE_THRESHOLD_SECONDS = 3.5
+    GAZE_THRESHOLD_SECONDS = 2.5
 
     HORIZONTAL_LOWER_THRESHOLD = 0.30
     HORIZONTAL_UPPER_THRESHOLD = 0.56
